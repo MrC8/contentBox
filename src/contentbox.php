@@ -8,7 +8,7 @@
 *
 *  @author    Miguel Costa for emotionLoop
 *  @copyright emotionLoop
-*  @version   1.1.0
+*  @version   1.1.1
 *  @license   http://opensource.org/licenses/afl-3.0.php  Academic Free License (AFL 3.0)
 *  http://emotionloop.com
 *  http://contentbox.org/
@@ -24,9 +24,9 @@ class CONTENTBOX extends Module
 	public function __construct()
 	{
 		$this->name = 'contentbox';
-		$this->description = 'Place your content everywhere!';
+		$this->description = '';
 		$this->tab = 'front_office_features';
-		$this->version = '1.1.0';
+		$this->version = '1.1.1';
 		$this->author = 'emotionLoop';
 		$this->need_instance = 0;
 		$this->ps_versions_compliancy = array('min' => '1.5', 'max' => '1.6');
@@ -43,8 +43,8 @@ class CONTENTBOX extends Module
 
 		parent::__construct();
 
-		$this->displayName = $this->l('contentBox');
-		$this->description = $this->l('Place your content everywhere!');
+		$this->displayName = $this->l('Focus sur les équilibreuses');
+		$this->description = $this->l('');
 
 		$this->confirmUninstall = $this->l('Are you sure you want to uninstall?');
 
@@ -128,7 +128,7 @@ class CONTENTBOX extends Module
 		$result = true;
 		//list the active files to add
 		$files_data = CONTENTBOXModel::getFilesInUse( $this->selected_store_id, $this->selected_language_id );
-		if (empty( $files_data ) || gettype( $files_data['files'] ) != null)
+		if (empty( $files_data ) || gettype( $files_data['files'] ) == null)
 			return $result;
 
 		$files = Tools::jsonDecode( $files_data['files'] );
@@ -156,6 +156,8 @@ class CONTENTBOX extends Module
 	public function genericHookMethod()
 	{
 		$content_query = CONTENTBOXModel::getContent( $this->selected_store_id, $this->selected_language_id );
+		$title_query = CONTENTBOXModel::getTitle( $this->selected_store_id, $this->selected_language_id );
+
 		$pre_content = '';
 		$pos_content = '';
 
@@ -174,7 +176,7 @@ class CONTENTBOX extends Module
 		}
 
 		$this->context->smarty->assign(
-				array( 'content' => $pre_content.$content_query['content_text'].$pos_content )
+				array('content' => $pre_content.$title_query['content_title'].$content_query['content_text'].$pos_content )
 			);
 		return $this->display(__FILE__, 'views/templates/front/template.tpl');
 
@@ -222,6 +224,10 @@ class CONTENTBOX extends Module
 				//store the content
 				if (Tools::getValue('content_text') !== false && $this->ignore_changes_content_changes == false)
 					CONTENTBOXModel::setContent( Tools::getValue('content_text'), $this->selected_store_id, $this->selected_language_id );
+
+				//store the title
+				if (Tools::getValue('content_title') !== false && $this->ignore_changes_content_changes == false)
+					CONTENTBOXModel::setTitle( Tools::getValue('content_title'), $this->selected_store_id, $this->selected_language_id );
 
 				//store the files to be used
 				if (Tools::getValue('headerFiles') !== false)
@@ -325,6 +331,13 @@ class CONTENTBOX extends Module
 					'title' => $this->l('Content Configuration'),
 				),
 				'input' => array(
+					array(
+						'type' => 'text',
+						'class' => 'content_wrapper_class',
+						'name' => 'content_title',
+						'disabled' => ( (empty( $content_wrapper ))? true:false ),
+						'label' => $this->l("Module's title")
+					),				
 					array(
 						'type' => 'textarea',
 						'name' => 'content_text',
@@ -526,10 +539,15 @@ class CONTENTBOX extends Module
 		);
 		// Load current value
 		$content_query = CONTENTBOXModel::getContent( $this->selected_store_id, $this->selected_language_id );
+		$title_query = CONTENTBOXModel::getTitle( $this->selected_store_id, $this->selected_language_id );
+
 
 		$content_field = ( !empty( $content_query ) )? $content_query['content_text'] : '';
+		$title_field = ( !empty( $title_query ) )? $title_query['content_title'] : '';
+
 
 		$helper->fields_value['content_text'] = $content_field;
+		$helper->fields_value['content_title'] = $title_field;
 
 		$helper->fields_value['monolanguage'] = Configuration::get($this->monolanguage_content);
 		$helper->fields_value['use_editor'] = $use_text_editor;
@@ -542,7 +560,7 @@ class CONTENTBOX extends Module
 		$helper->fields_value['content_wrapper_class'] = $content_wrapper_class;
 		$helper->fields_value['content_wrapper_id'] = $content_wrapper_id;
 
-		if (Tools::getIsset( $this->context ) && Tools::getIsset( $this->context->controller ))
+		if (isset( $this->context ) && isset( $this->context->controller ))
 		{
 			$this->context->controller->addJs($this->_path.'/js/contentbox.js');
 			$this->context->controller->addCss($this->_path.'/css/contentbox.css');
@@ -755,6 +773,21 @@ class CONTENTBOXModel extends ObjectModel
 		return Db::getInstance()->execute($sql);
 	}
 
+//
+	public static function createTitleTable()
+	{
+		$sql = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.self::$definition['table'].'_title`(
+			`content_id` int(10) unsigned NOT NULL auto_increment,
+			`content_title` text NOT NULL,
+			`id_lang` int(10) unsigned NOT NULL,
+			`id_store` int(10) unsigned NOT NULL default \'1\',
+			PRIMARY KEY (`content_id`),
+			UNIQUE KEY `id_lang_id_store` (`id_lang`,`id_store`)
+			) ENGINE='._MYSQL_ENGINE_.' DEFAULT CHARSET=utf8';
+
+		return Db::getInstance()->execute($sql);
+	}	
+
 	public static function setContent($content_text = null, $id_store = 1, $id_lang = null)
 	{
 		//special thanks to MarkOG (http://www.prestashop.com/forums/user/817367-markog/)
@@ -768,12 +801,33 @@ class CONTENTBOXModel extends ObjectModel
 
 		return Db::getInstance()->execute( $sql );
 	}
+//	
+	public static function setTitle($title_text = null, $id_store = 1, $id_lang = null)
+	{
+		//special thanks to MarkOG (http://www.prestashop.com/forums/user/817367-markog/)
+		$title_text = pSQL( $title_text, true );
+		$id_lang = (int)$id_lang;
+		$id_store = (int)$id_store;
+		$sql = 'INSERT INTO `'._DB_PREFIX_.self::$definition['table'].'_title` (`content_title`,`id_lang`,`id_store`)
+					VALUES ("'.$title_text.'","'.$id_lang.'","'.$id_store.'")
+					ON DUPLICATE KEY UPDATE `content_title` = "'.$title_text.'"
+				';
+
+		return Db::getInstance()->execute( $sql );
+	}	
 
 	public static function getContent($shop, $language)
 	{
 		$sql = 'SELECT * FROM '._DB_PREFIX_.self::$definition['table'].' WHERE `id_lang` = "'.(int)$language.'" and `id_store`="'.(int)$shop.'"';
 		return Db::getInstance()->getRow($sql);
 	}
+//
+	public static function getTitle($shop, $language)
+	{
+		$sql = 'SELECT * FROM '._DB_PREFIX_.self::$definition['table'].'_title` WHERE `id_lang` = "'.(int)$language.'" and `id_store`="'.(int)$shop.'"';
+		return Db::getInstance()->getRow($sql);
+	}
+
 
 	public static function createFilesTable()
 	{
